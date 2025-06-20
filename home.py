@@ -89,9 +89,10 @@ if int(st.session_state.current_step) >= 3:
         st.session_state.current_step = 4
     else:
         st.error('Schema of uploaded file differs to that of the target table.', icon="❌")
+        st.write('The following columns were not found in the uploaded file:')
         st.dataframe(pd.DataFrame(
             st.session_state.rd.diffschema,
-            columns = ['Column name', 'Table Data type', 'Uploaded Data type', 'Error']),
+            columns = ['Column name']),
             hide_index = True,
             use_container_width = True
         )
@@ -108,11 +109,29 @@ if int(st.session_state.current_step) >= 3:
                 on_click = click_continue_on_schema_error
             )
         
-        
+##############################
+## Data types check
+##############################
+if int(st.session_state.current_step) >= 4:
+    st.subheader("Check data types")
+    if st.session_state.rd.diffdatatypes == []:
+        st.info('Data types match!', icon="✅")
+        st.session_state.current_step = 5
+    else:
+        st.error('Data types of some uploaded values differ to that of the target table.', icon="❌")
+        st.write('The following values were found in the uploaded file:')
+        st.dataframe(pd.DataFrame(
+            st.session_state.rd.diffdatatypes,
+            columns = ['Primary key', 'Column', 'Uploaded value', 'Expected Data type']),
+            hide_index = True,
+            use_container_width = True
+        )
+
+
 ##############################
 ## DQ checks
 ##############################
-if st.session_state.current_step >= 4:
+if st.session_state.current_step >= 5:
     st.subheader('Impact')
     st.write(f'This upload will:')
     col1, col2 = st.columns([.5, .5])
@@ -128,10 +147,10 @@ if st.session_state.current_step >= 4:
         
     if not changes:
         st.info('No changes to be uploaded. Data in file matches data already in table.', icon='⚠️')
-    if int(st.session_state.current_step) == 4 and changes:
-            st.session_state.current_step = 5
+    if int(st.session_state.current_step) == 5 and changes:
+            st.session_state.current_step = 6
 
-if st.session_state.current_step >= 5:
+if st.session_state.current_step >= 6:
     st.subheader("Data quality checks")
     # Display DQ checks
     for check_result in st.session_state.rd.check_results:
@@ -150,8 +169,8 @@ if st.session_state.current_step >= 5:
             exp.write(f"The **{check_result.check_type}** check has passed for all rows.")
             #st.badge("Passed", icon=":material/check:", color="green")
 
-        if int(st.session_state.current_step) == 5 and st.session_state.rd.all_checks_passed:
-            st.session_state.current_step = 6
+        if int(st.session_state.current_step) == 6 and st.session_state.rd.all_checks_passed:
+            st.session_state.current_step = 7
 
         #st.divider()
  
@@ -159,18 +178,18 @@ if st.session_state.current_step >= 5:
 ##############################
 ## Upload data prompt
 ##############################
-if int(st.session_state.current_step) >= 6:
+if int(st.session_state.current_step) >= 7:
     st.subheader("Upload data")
     # Upload button
     do_upload = st.button(label = "Upload", icon = ":material/upload_file:")
-    if int(st.session_state.current_step) == 6:
-        st.session_state.current_step = 7
+    if int(st.session_state.current_step) == 7:
+        st.session_state.current_step = 8
 
 
 ##############################
 ## Upload data
 ##############################
-if do_upload and int(st.session_state.current_step) == 7:
+if do_upload and int(st.session_state.current_step) == 8:
     with st.spinner("Uploading data..."):
         st.session_state.rd.upload_data()
     st.write("Done!")

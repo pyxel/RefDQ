@@ -11,6 +11,8 @@ import string
 import get_snowflake as sf
 from snowflake.snowpark import Row
 
+NULL_PLACEHOLDER = "_£^NULL^£_"
+
 
 def readfile(file: str):
     f = open(file)
@@ -147,7 +149,8 @@ class RefData:
         # The Snowflake schema for the target table.
         self.targetschema = self.getschema(self.target)
         # The dataframe received from the user.
-        self.df = df
+        # TODO: Find a better way to handle null/nan/none.
+        self.df = df.fillna(NULL_PLACEHOLDER).astype(str).replace(NULL_PLACEHOLDER, None)
 
         # upload type
         self.upload_type = upload_type.lower()
@@ -160,15 +163,20 @@ class RefData:
         
         # Compare schemas.
         self.sourceschema = self.getschema(self.stage_table)
-        self.diffschema = self.compareschemas()
+        self.diffschema = self.comparecolumns()
+
+        if not (self.diffschema == [] or ignore_schema_error): return
         
-        if self.diffschema == [] or ignore_schema_error:
+        # Check data types
+        self.diffdatatypes = self.check_data_types()
 
-            # Impact
-            self.impact = self.assessimpact()
+        if self.diffdatatypes != []: return
+        
+        # Impact
+        self.impact = self.assessimpact()
 
-            # Run checks.
-            self.all_checks_passed, self.check_results = self.run_checks()
+        # Run checks.
+        self.all_checks_passed, self.check_results = self.run_checks()
 
 
     def upload_data(self):
@@ -216,6 +224,15 @@ select {insert_cols} from {self.stage_table}
         return diff
     
 
+    def comparecolumns(self):
+        """Returns list of columns that were not found in the uploaded data."""
+        diff = []
+        for col in self.targetschema.keys():
+            if col not in self.sourceschema:
+                diff.append(col)
+        return diff
+    
+
     def assessimpact(self):
         """Returns the number of rows inserted, updated and deleted."""
         cols = self.targetschema.keys()
@@ -255,7 +272,7 @@ select {insert_cols} from {self.stage_table}
         df = sf.query(sql)
         for row in df:
             row = row.as_dict()
-            print(row)
+            #print(row)
             impact = {
                 "inserted": row.get("INSERTED"),
                 "updated": row.get("UPDATED"),
@@ -263,9 +280,28 @@ select {insert_cols} from {self.stage_table}
                 "upload_rows": row.get("UPLOAD_ROWS"),
                 "merge_rows_affected": row.get("INSERTED", 0) + row.get("UPDATED", 0)
             }
-            print(impact)
+            #print(impact)
         return impact
     
+
+    def check_data_types(self):
+
+        # Loop through each column and create a select statement to find values with uncastable data types.
+        # Union the select statements.
+        cast_select = [f"""select
+    {self.target.primary_key} as primary_key, 
+    '{name}' as column_name,
+    {name} as value,
+    '{dtype}' as expected_data_type
+from {self.stage_table}
+where {name} is not null and {'' if dtype.startswith('VARCHAR') else 'try_'}cast({name} as {dtype}) is null""" for name, dtype in self.targetschema.items()]
+        sql = ' union all\n'.join(cast_select) + '\norder by 1,2'
+        #print(sql)
+
+        df = sf.query(sql)
+
+        return df    
+
 
     def run_checks(self):
         # Parse the check definition files.
@@ -275,6 +311,8 @@ select {insert_cols} from {self.stage_table}
         all_passed = True
 
         cols = self.targetschema.keys()
+        
+        select_cols_tmp = ", ".join([f"{'' if dtype.startswith('VARCHAR') else 'try_'}cast({col} as {dtype}) as {col}" for col, dtype in self.targetschema.items()])
         select_cols = ", ".join([col for col in cols])
 
         # Loop through checks defined for this table.
@@ -293,7 +331,7 @@ select {insert_cols} from {self.stage_table}
             if self.upload_type == "merge":
             # Create a table expression which is the union of existing and new data.
                 table_sql = f"""(
-select {select_cols}
+select {select_cols_tmp}
 from ({self.stage_table}) src
 union all
 select {select_cols}
