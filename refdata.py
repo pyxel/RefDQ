@@ -203,6 +203,11 @@ select {insert_cols} from {self.stage_table}
         sf.query(sql)
         
 
+    def getcastcols(self):
+        """Returns a string of comma-separated column names wrapped in try-cast functions."""
+        return ", ".join([f"{'' if dtype.startswith('VARCHAR') else 'try_'}cast({col} as {dtype}) as {col}" for col, dtype in self.targetschema.items()])
+    
+    
     def getschema(self, tablename):
         """Retrieves and returns the schema of the Snowflake table as a dict { field_name: data type }, for easy comparison."""
         return sf.get_table_schema(tablename)
@@ -241,7 +246,7 @@ select {insert_cols} from {self.stage_table}
         if self.upload_type == 'merge':
             sql = """
             with t2 as (
-                select {select_cols} from {t2}
+                select {select_cols_tmp} from {t2}
                 except
                 select {select_cols} from {t1}
             )
@@ -257,6 +262,7 @@ select {insert_cols} from {self.stage_table}
                 key = self.target.primary_key,
                 t1 = self.target.target_table,
                 t2 = self.stage_table,
+                select_cols_tmp = self.getcastcols(),
                 select_cols = select_cols
             )
         else:
@@ -312,7 +318,7 @@ where {name} is not null and {'' if dtype.startswith('VARCHAR') else 'try_'}cast
 
         cols = self.targetschema.keys()
         
-        select_cols_tmp = ", ".join([f"{'' if dtype.startswith('VARCHAR') else 'try_'}cast({col} as {dtype}) as {col}" for col, dtype in self.targetschema.items()])
+        select_cols_tmp = self.getcastcols()
         select_cols = ", ".join([col for col in cols])
 
         # Loop through checks defined for this table.
