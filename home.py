@@ -38,7 +38,8 @@ uploaded_file = st.file_uploader(label = "")
 if int(st.session_state.current_step) >= 1:
     upload_df = None
     if uploaded_file is not None:
-        upload_df = pd.read_csv(uploaded_file, na_filter = False)
+        # Interpret only empty strings as null values. Everything else (e.g. NA, NaN etc.) is treated as a string literal.
+        upload_df = pd.read_csv(uploaded_file, keep_default_na = False, na_values = [''])
         upload_df.columns = [c.upper() for c in upload_df.columns]
         st.write("Sample rows from file:")
         st.dataframe(data = upload_df.head(100), hide_index = True)
