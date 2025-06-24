@@ -1,13 +1,20 @@
-#RefDQ MVP version 0.01
+#RefDQ MVP version 0.1.1
 #© 2025 Mark Sabin <morboagrees@gmail.com>
 #Released under Apache 2.0 license. Please see https://github.com/pyxel/RefDQ/blob/main/LICENSE.
 
 
 import streamlit as st
 import pandas as pd
-from refdata import RefData, Target, CheckResult, get_target_table_names, get_target_sample
+from refdata import RefData, Target, CheckResult, get_target_group_names, get_target_table_names, get_target_sample
+import os
 
 max_error_rows = 10000
+
+
+def format_newline(s):
+    """st.write needs two whitespace characters in front of a newline or it is ignored."""
+    return s.replace('\n', '  \n')
+
 
 st.logo('logo.png')
 st.title('RefDQ')
@@ -24,10 +31,22 @@ if 'current_step' not in st.session_state or reset:
     st.session_state.current_step = 1
 if 'continue_on_schema_error' not in st.session_state or reset:
     st.session_state.continue_on_schema_error = False
-if 'rd' not in st.session_state or reset:
-    st.session_state.rd = None
+if 'target_group_names' not in st.session_state or reset:
+    st.session_state.target_group_names = get_target_group_names()
+if 'target_table_names' not in st.session_state or reset:
+    st.session_state.target_table_names = get_target_table_names()
+
 
 if reset: st.rerun()
+
+
+def get_tables():
+    st.session_state.target_table_names = get_target_table_names(st.session_state.select_groups)
+
+
+def set_step(step):
+    st.session_state.current_step = step
+
 
 ##############################
 ## Upload a file
@@ -39,7 +58,10 @@ if int(st.session_state.current_step) >= 1:
     upload_df = None
     if uploaded_file is not None:
         # Interpret only empty strings as null values. Everything else (e.g. NA, NaN etc.) is treated as a string literal.
-        upload_df = pd.read_csv(uploaded_file, keep_default_na = False, na_values = [''])
+        if os.path.splitext(uploaded_file.name)[1] == '.xlsx':
+            upload_df = pd.read_excel(uploaded_file, keep_default_na = False, na_values = [''])
+        else:
+            upload_df = pd.read_csv(uploaded_file, keep_default_na = False, na_values = [''])
         upload_df.columns = [c.upper() for c in upload_df.columns]
         st.write("Sample rows from file:")
         st.dataframe(data = upload_df.head(100), hide_index = True)
@@ -48,17 +70,19 @@ if int(st.session_state.current_step) >= 1:
 
 
 if int(st.session_state.current_step) >= 2:
-    target_table_names = get_target_table_names()
     st.subheader("Select a table to write to")
-    upload_type_select = st.selectbox(label = "Upload type", options = ['Merge (upsert)', 'Replace'])
+    upload_type_select = st.selectbox(label = "Upload type", options = ['Merge (upsert)', 'Replace'], on_change = set_step, args = [2])
     upload_type = 'replace' if upload_type_select == 'Replace' else 'merge'
 
-    target_table_name = st.selectbox(label = "Table", options = target_table_names, index = None)
+    target_group_name = st.selectbox(label = "Group", options = st.session_state.target_group_names, index = None, on_change = get_tables, key = 'select_groups')
+    target_table_name = st.selectbox(label = "Table", options = st.session_state.target_table_names, index = None)
 
     if target_table_name:
         st.write("Sample rows from table:")
         table_sample_df = get_target_sample(target_table = target_table_name)
         st.dataframe(data = table_sample_df, hide_index = True)
+    else:
+        st.session_state.current_step = 2
 
 if int(st.session_state.current_step) == 2:
     st.session_state.current_step = 3 if upload_df is not None and target_table_name is not None else 2
@@ -129,7 +153,7 @@ if int(st.session_state.current_step) >= 4:
 
 
 ##############################
-## DQ checks
+## Impact
 ##############################
 if st.session_state.current_step >= 5:
     st.subheader('Impact')
@@ -150,13 +174,16 @@ if st.session_state.current_step >= 5:
     if int(st.session_state.current_step) == 5 and changes:
             st.session_state.current_step = 6
 
+##############################
+## DQ checks
+##############################
 if st.session_state.current_step >= 6:
     st.subheader("Data quality checks")
     # Display DQ checks
     for check_result in st.session_state.rd.check_results:
         if len(check_result.df) > 0:
             exp = st.expander(f"❌ **{check_result.check_type}**") 
-            exp.write(f"{check_result.description}")
+            exp.write(format_newline(f"{check_result.description}"))
             exp.info('Failed!', icon="❌")
             max_error_message = f"(first {max_error_rows} rows of {len(check_result.df)})" if len(check_result.df) > max_error_rows else ""
             exp.write(f"The **{check_result.check_type}** check has failed for the rows below{max_error_message}. Please correct the source file and upload again.")
@@ -164,7 +191,7 @@ if st.session_state.current_step >= 6:
             exp.dataframe(data = check_result.df[:max_error_rows], hide_index = True)
         else:
             exp = st.expander(f"✅ **{check_result.check_type}**")
-            exp.write(f"{check_result.description}")
+            exp.write(format_newline(f"{check_result.description}"))
             exp.info('Passed!', icon="✅")
             exp.write(f"The **{check_result.check_type}** check has passed for all rows.")
             #st.badge("Passed", icon=":material/check:", color="green")

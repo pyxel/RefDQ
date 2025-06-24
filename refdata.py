@@ -49,10 +49,16 @@ def get_targets(path = os.path.join(config_path, 'tables')):
     return targets
 
 
-def get_target_table_names():
+def get_target_group_names():
     """Returns a list of all defined target table names."""
     targets = get_targets()
-    return [targets[k]['target_table'] for k in targets.keys()]
+    return [targets[k].get('group') for k in targets.keys()]
+
+
+def get_target_table_names(group = None):
+    """Returns a list of all defined target table names."""
+    targets = get_targets()
+    return [targets[k]['target_table'] for k in targets.keys() if group is None or targets[k].get('group') == group]
 
 
 def get_check_definitions(path = os.path.join(config_path, 'checks')):
@@ -102,22 +108,22 @@ class Target:
 
 class Check:
     """Defines a data check."""
-    def __init__(self, definiton, general_args, check_args):
+    def __init__(self, definition, general_args, check_args):
 
-        self.definiton = definiton
+        self.definition = definition
 
-        if 'sql' not in definiton:
+        if 'sql' not in definition:
             raise ValueError("Check definition must contain key 'sql'.")
 
-        if 'type' not in definiton:
+        if 'type' not in definition:
             raise ValueError("Check definition must contain key 'type'.")
         
-        self.type = definiton['type']
+        self.type = definition['type']
         
-        self.description = definiton['description'] if 'description' in definiton else ''
+        self.description = definition['description'] if 'description' in definition else ''
 
         # Get the variable placeholders from the SQL string.
-        self.variables = [v[1] for v in string.Formatter().parse(definiton['sql']) if v[1] is not None]
+        self.variables = [v[1] for v in string.Formatter().parse(definition['sql']) if v[1] is not None]
 
         args = {**general_args, **check_args}
 
@@ -125,7 +131,7 @@ class Check:
             if var not in list(args.keys()):
                 raise ValueError(f"Argument '{var}' is required for check '{self.type}'.")
 
-        self.sql = definiton['sql'].format(**args)
+        self.sql = definition['sql'].format(**args)
         
 
 class CheckResult:
@@ -359,11 +365,14 @@ where not exists (
                 "table": table_sql,
                 "primary_key": self.target.primary_key
             }
-            # Variables defined in the check definiton SQL.
+            # Variables defined in the check definition SQL.
             # We expect to find values for these in the table check yaml.
             for var in [var for var in vars if var not in list(d_vars.keys())]:
                 d_vars[var] = check[var]
 
+            # Get the description from the check definition and the table definition.
+            description = check_definitions[check_type]['description'].format(**d_vars) + \
+                ('\n' + check.get("description")) if check.get("description") is not None else ''
 
             sql = check_sql.format(**d_vars)
             
@@ -377,7 +386,7 @@ where not exists (
 
             check_result = CheckResult(
                 check_type = check_type,
-                description = check_definitions[check_type]['description'].format(**d_vars),
+                description = description,
                 df = df,
                 check_passed = True,
                 error = error
