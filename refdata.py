@@ -1,5 +1,5 @@
 """
-RefDQ MVP version 0.01
+RefDQ MVP version 0.1.2
 © 2025 Mark Sabin <morboagrees@gmail.com>
 Released under Apache 2.0 license. Please see https://github.com/pyxel/differ/blob/main/LICENSE.
 """
@@ -52,7 +52,7 @@ def get_targets(path = os.path.join(config_path, 'tables')):
 def get_target_group_names():
     """Returns a list of all defined target table names."""
     targets = get_targets()
-    return [targets[k].get('group') for k in targets.keys()]
+    return list(set([targets[k].get('group') for k in targets.keys()]))
 
 
 def get_target_table_names(group = None):
@@ -211,7 +211,7 @@ select {insert_cols} from {self.stage_table}
 
     def getcastcols(self):
         """Returns a string of comma-separated column names wrapped in try-cast functions."""
-        return ", ".join([f"{'' if dtype.startswith('VARCHAR') else 'try_'}cast({col} as {dtype}) as {col}" for col, dtype in self.targetschema.items()])
+        return ", ".join([f"{'' if dtype.startswith('VARCHAR') else 'try_'}cast({col}::string as {dtype}) as {col}" for col, dtype in self.targetschema.items()])
     
     
     def getschema(self, tablename):
@@ -251,19 +251,26 @@ select {insert_cols} from {self.stage_table}
 
         if self.upload_type == 'merge':
             sql = """
-            with t2 as (
+            with new as (
                 select {select_cols_tmp} from {t2}
                 except
                 select {select_cols} from {t1}
+            ),
+
+            -- Remove any null primary keys. They should not exist, but will break the results if they do.
+            clean_t1 as (
+                select *
+                from {t1}
+                where {key} is not null
             )
 
             select
                 count_if(t1.{key} is null) as inserted,
-                count_if(t1.{key} is not null and t2.{key} is not null) as updated,
+                count_if(t1.{key} is not null and new.{key} is not null) as updated,
                 count_if(t1.{key} is not null) as table_rows,
-                count_if(t2.{key} is not null) as upload_rows
-            from {t1} t1
-            full join t2 on t2.{key} = t1.{key}
+                count_if(new.{key} is not null) as upload_rows
+            from clean_t1 t1
+            full join new on new.{key} = t1.{key}
             """.format(
                 key = self.target.primary_key,
                 t1 = self.target.target_table,
@@ -306,7 +313,7 @@ select {insert_cols} from {self.stage_table}
     {name} as value,
     '{dtype}' as expected_data_type
 from {self.stage_table}
-where {name} is not null and {'' if dtype.startswith('VARCHAR') else 'try_'}cast({name} as {dtype}) is null""" for name, dtype in self.targetschema.items()]
+where {name} is not null and {'' if dtype.startswith('VARCHAR') else 'try_'}cast({name}::string as {dtype}) is null""" for name, dtype in self.targetschema.items()]
         sql = ' union all\n'.join(cast_select) + '\norder by 1,2'
         #print(sql)
 
