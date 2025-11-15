@@ -1,4 +1,4 @@
-#RefDQ MVP version 0.1.1
+#RefDQ MVP version 0.1.3
 #© 2025 Mark Sabin <morboagrees@gmail.com>
 #Released under Apache 2.0 license. Please see https://github.com/pyxel/RefDQ/blob/main/LICENSE.
 
@@ -58,10 +58,11 @@ if int(st.session_state.current_step) >= 1:
     upload_df = None
     if uploaded_file is not None:
         # Interpret only empty strings as null values. Everything else (e.g. NA, NaN etc.) is treated as a string literal.
+        # Pandas stores all values as strings (dtype = str) to avoid casting issues, such as decimal places being added to integers (eg. 100 -> 100.0).
         if os.path.splitext(uploaded_file.name)[1] == '.xlsx':
-            upload_df = pd.read_excel(uploaded_file, keep_default_na = False, na_values = [''])
+            upload_df = pd.read_excel(uploaded_file, keep_default_na = False, na_values = [''], dtype = str)
         else:
-            upload_df = pd.read_csv(uploaded_file, keep_default_na = False, na_values = [''])
+            upload_df = pd.read_csv(uploaded_file, keep_default_na = False, na_values = [''], dtype = str)
         upload_df.columns = [c.upper() for c in upload_df.columns]
         st.write("Sample rows from file:")
         st.dataframe(data = upload_df.head(100), hide_index = True)
