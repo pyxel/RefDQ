@@ -1,4 +1,4 @@
-#RefDQ MVP version 0.1.3
+#RefDQ MVP version 0.2.0
 #© 2025 Mark Sabin <morboagrees@gmail.com>
 #Released under Apache 2.0 license. Please see https://github.com/pyxel/RefDQ/blob/main/LICENSE.
 

@@ -19,3 +19,8 @@ Schema comparison errors on non-integer numeric types. Due to temp tables being 
 #### v0.1.3
 ### Bug fixes
 Numeric strings having decimal places appended (eg 100 -> 100.0). Now all values are cast to string when loading into Pandas dataframe.
+
+
+#### v0.2.0
+### Multi-column primary keys
+Primary keys can now be multi-column, specified as a list.

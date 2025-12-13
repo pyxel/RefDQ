@@ -1,5 +1,5 @@
 """
-RefDQ MVP version 0.1.2
+RefDQ MVP version 0.2.0
 © 2025 Mark Sabin <morboagrees@gmail.com>
 Released under Apache 2.0 license. Please see https://github.com/pyxel/differ/blob/main/LICENSE.
 """
@@ -45,7 +45,11 @@ def get_targets(path = os.path.join(config_path, 'tables')):
     files = [os.path.splitext(file)[0] for file in os.listdir(path) if os.path.isfile(os.path.join(path, file)) and os.path.splitext(file)[1] == ext]
     targets = {}
     for file in files:
-        targets[file] = yaml.safe_load(open(os.path.join(path, file + ext)))
+        target = yaml.safe_load(open(os.path.join(path, file + ext)))
+        if 'primary_key' in target:
+            if not isinstance(target['primary_key'], list):
+                target['primary_key'] = [target['primary_key']]
+        targets[file] = target
     return targets
 
 
@@ -104,6 +108,21 @@ class Target:
 
     def __str__(self):
         return self.target_table
+    
+    
+    def get_sql_primary_key_join(self, t1, t2):
+        """Returns a string for a SQL query that joins t1 to t2 on all primary key columns."""
+        return ' and '.join([f"{t1}.{k} = {t2}.{k}" for k in self.primary_key])
+    
+
+    def get_sql_primary_key_check_null(self, t1, not_null = False):
+        """Returns a string for a SQL query that checks for null on all primary key columns."""
+        return ' and '.join([f"{t1}.{k} is{' not ' if not_null else ' '}null" for k in self.primary_key])
+    
+
+    def get_sql_primary_key_select(self, t1):
+        """Returns a string for a SQL query that selects all primary key columns."""
+        return ',\n'.join([f"{t1}.{k}" for k in self.primary_key])
 
 
 class Check:
@@ -190,11 +209,12 @@ class RefData:
         update_cols = ", ".join([f"tgt.{col} = src.{col}" for col in cols])
         insert_cols = ", ".join([col for col in cols])
         value_cols = ", ".join([f"src.{col}" for col in cols])
+        key_join = self.target.get_sql_primary_key_join("tgt", "src")
         if self.upload_type == 'merge':
             sql = f"""
 merge into {self.target.target_table} tgt
 using {self.stage_table} src
-on tgt.{self.target.primary_key} = src.{self.target.primary_key}
+on {key_join}
 when matched then
     update set {update_cols}
 when not matched then
@@ -260,23 +280,27 @@ select {insert_cols} from {self.stage_table}
             -- Remove any null primary keys. They should not exist, but will break the results if they do.
             clean_t1 as (
                 select *
-                from {t1}
-                where {key} is not null
+                from {t1} t1
+                where {not_null_check_t1}
             )
 
             select
-                count_if(t1.{key} is null) as inserted,
-                count_if(t1.{key} is not null and new.{key} is not null) as updated,
-                count_if(t1.{key} is not null) as table_rows,
-                count_if(new.{key} is not null) as upload_rows
+                count_if({null_check_t1}) as inserted,
+                count_if({not_null_check_t1} and {not_null_check_new}) as updated,
+                count_if({not_null_check_t1}) as table_rows,
+                count_if({not_null_check_new}) as upload_rows
             from clean_t1 t1
-            full join new on new.{key} = t1.{key}
+            full join new on {join}
             """.format(
                 key = self.target.primary_key,
                 t1 = self.target.target_table,
                 t2 = self.stage_table,
                 select_cols_tmp = self.getcastcols(),
-                select_cols = select_cols
+                select_cols = select_cols,
+                not_null_check_t1 = self.target.get_sql_primary_key_check_null("t1", not_null = True),
+                not_null_check_new = self.target.get_sql_primary_key_check_null("new", not_null = True),
+                null_check_t1 = self.target.get_sql_primary_key_check_null("t1", not_null = False),
+                join = self.target.get_sql_primary_key_join("new", "t1")
             )
         else:
             sql = """
@@ -307,13 +331,16 @@ select {insert_cols} from {self.stage_table}
 
         # Loop through each column and create a select statement to find values with uncastable data types.
         # Union the select statements.
+        primary_key_select = self.target.get_sql_primary_key_select('t1')
+
         cast_select = [f"""select
-    {self.target.primary_key} as primary_key, 
+    {primary_key_select}, 
     '{name}' as column_name,
     {name} as value,
     '{dtype}' as expected_data_type
-from {self.stage_table}
+from {self.stage_table} t1
 where {name} is not null and {'' if dtype.startswith('VARCHAR') else 'try_'}cast({name}::string as {dtype}) is null""" for name, dtype in self.targetschema.items()]
+        
         sql = ' union all\n'.join(cast_select) + '\norder by 1,2'
         #print(sql)
 
@@ -358,7 +385,7 @@ from {self.target.target_table} tgt
 where not exists (
     select 1
     from {self.stage_table} src
-    where src.{self.target.primary_key} = tgt.{self.target.primary_key}
+    where {self.target.get_sql_primary_key_join("src", "tgt")}
 )
 ) as __union__t
 """
@@ -370,7 +397,7 @@ where not exists (
             # General variables:
             d_vars = {
                 "table": table_sql,
-                "primary_key": self.target.primary_key
+                "primary_key": self.target.primary_key #TODO this may be a list. Should we pass in a string formatted in some way?
             }
             # Variables defined in the check definition SQL.
             # We expect to find values for these in the table check yaml.
