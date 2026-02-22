@@ -1,6 +1,8 @@
 # RefDQ
 Data quality gateway for reference data.
 
+See the [User Guide](docs/user_guide.md) for setup instructions and usage documentation.
+
 
 ## Version history
 #### v0.1.0 Initial MVP release.
