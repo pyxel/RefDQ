@@ -36,3 +36,6 @@ Target table is automatically selected by finding the closest match of column na
 Improved code structure using an abstract base class for each section with a render function.
 Functionality remains the same.
 
+
+#### v0.3.1
+### Removed the logo

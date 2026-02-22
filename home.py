@@ -1,4 +1,4 @@
-#RefDQ MVP version 0.3.0
+#RefDQ MVP version 0.3.1
 #© 2025 Mark Sabin <morboagrees@gmail.com>
 #Released under Apache 2.0 license. Please see https://github.com/pyxel/RefDQ/blob/main/LICENSE.
 
@@ -411,7 +411,6 @@ class UploadSection(Section):
 
 
 def main():
-    st.logo('logo.png')
     st.title('RefDQ - Upload')
 
     # Load/create state
