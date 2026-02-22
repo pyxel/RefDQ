@@ -128,7 +128,7 @@ Use the **Reset** button (top right) to start over with a new file.
 RefDQ uses YAML configuration files organized in directories:
 
 ```
-refman/
+refdq/
 ├── config.yaml          # Global settings
 ├── tables/              # Table definitions (one file per table)
 │   ├── names.yaml
@@ -145,7 +145,7 @@ refman/
 
 ```yaml
 # Path to configuration directories
-config_path: /path/to/refman
+config_path: /path/to/refdq
 
 # Snowflake schema for temporary staging tables
 temp_schema: database.schema
@@ -365,7 +365,7 @@ CREATE TABLE my_database.my_schema.names (
 Create a directory to hold your table and check definitions. This can be anywhere accessible to the app (see deployment options below).
 
 ```
-refman/
+refdq/
 ├── config.yaml
 ├── tables/
 │   └── names.yaml
@@ -376,7 +376,7 @@ refman/
 Update `config.yaml` to point to the configuration directory and specify the temp schema:
 
 ```yaml
-config_path: /path/to/refman
+config_path: /path/to/refdq
 temp_schema: my_database.refdata_tmp
 ```
 
@@ -607,7 +607,7 @@ export SNOWFLAKE_SCHEMA=your_schema
 Update `config.yaml` with the absolute path to your configuration directory:
 
 ```yaml
-config_path: /path/to/refman
+config_path: /path/to/refdq
 temp_schema: my_database.refdata_tmp
 ```
 
