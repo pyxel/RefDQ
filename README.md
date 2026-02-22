@@ -24,3 +24,13 @@ Numeric strings having decimal places appended (eg 100 -> 100.0). Now all values
 #### v0.2.0
 ### Multi-column primary keys
 Primary keys can now be multi-column, specified as a list.
+
+
+#### v0.3.0
+### Auto-detect target table using column names
+Target table is automatically selected by finding the closest match of column names. Selection can still be changed manually.
+
+### Refactor home page code
+Improved code structure using an abstract base class for each section with a render function.
+Functionality remains the same.
+
