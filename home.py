@@ -1,4 +1,4 @@
-#RefDQ MVP version 0.3.1
+#RefDQ MVP version 0.4.0
 #© 2025 Mark Sabin <morboagrees@gmail.com>
 #Released under Apache 2.0 license. Please see https://github.com/pyxel/RefDQ/blob/main/LICENSE.
 
@@ -44,6 +44,7 @@ class AppState:
     auto_detected_group: str | None = None
     has_changes: bool = False
     upload_complete: bool = False
+    action_run: bool = False
 
     # Cached data
     target_group_names: list[str] = field(default_factory=list)
@@ -62,6 +63,7 @@ class AppState:
         self.auto_detected_group = None
         self.has_changes = False
         self.upload_complete = False
+        self.action_run = False
         self.target_group_names = get_target_group_names()
         self.target_table_names = get_target_table_names()
 
@@ -398,14 +400,28 @@ class UploadSection(Section):
 
         if self.state.upload_complete:
             st.success("Upload complete!")
+            if self.state.action_run:
+                action = self.state.rd.target.action
+                st.success(f"Action \"{action.get('name', 'Action')}\" executed.")
             return True
+
+        action = self.state.rd.target.action
+        run_action = True
+        if action is not None and action.get('trigger') == 'optional':
+            run_action = st.checkbox(
+                label=action.get('name', 'Run action after upload'),
+                value=True
+            )
 
         if st.button("Upload", icon=":material/upload_file:"):
             with st.spinner("Uploading data..."):
                 self.state.rd.upload_data()
+            if action is not None and (action.get('trigger') == 'always' or run_action):
+                with st.spinner(f"Running {action.get('name', 'action')}..."):
+                    self.state.rd.run_action()
+                self.state.action_run = True
             self.state.upload_complete = True
-            st.success("Done!")
-            return True
+            st.rerun()
 
         return False
 

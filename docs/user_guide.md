@@ -14,6 +14,7 @@ RefDQ is a data quality application for uploading reference data files to Snowfl
 - [Administrator Guide](#administrator-guide)
   - [Configuration Overview](#configuration-overview)
   - [Configuring Tables](#configuring-tables)
+  - [Configuring Actions](#configuring-actions)
   - [Configuring Data Quality Checks](#configuring-data-quality-checks)
   - [Snowflake Setup](#snowflake-setup)
 
@@ -114,8 +115,9 @@ Custom business rules configured for each table. Each check appears as an expand
 Once all checks pass:
 
 1. Review the impact summary
-2. Click **Upload** to write data to Snowflake
-3. Wait for confirmation: "Upload complete!"
+2. If the table has an optional action configured, a checkbox will appear — checked by default. Uncheck it if you do not want the action to run after upload.
+3. Click **Upload** to write data to Snowflake
+4. Wait for confirmation: "Upload complete!" and, if an action ran, a separate confirmation for the action.
 
 Use the **Reset** button (top right) to start over with a new file.
 
@@ -176,7 +178,7 @@ checks:                                   # List of data quality checks
     description: Age must be 150 or less  # Optional: additional context
 action:                                   # Optional: post-upload action
   name: Run task
-  trigger: button
+  trigger: always                         # 'always' or 'optional'
   command: CALL my_procedure()
 ```
 
@@ -193,7 +195,7 @@ action:                                   # Optional: post-upload action
 |-------|-------------|
 | `group` | Category name for grouping tables in the UI dropdown |
 | `checks` | List of data quality checks to run (see below) |
-| `action` | Post-upload SQL command to execute |
+| `action` | Post-upload SQL command to execute (see [Configuring Actions](#configuring-actions)) |
 
 ### Configuring Checks for a Table
 
@@ -206,6 +208,39 @@ checks:
     # ... additional parameters required by the check type
     description: Optional additional context shown to users
 ```
+
+## Configuring Actions
+
+An action is an optional SQL command that runs automatically after a successful upload. Use it to trigger stored procedures, refresh materialised views, or kick off downstream processes.
+
+**File:** `tables/{table_name}.yaml`
+
+```yaml
+action:
+  name: Refresh summary view   # Label shown in the UI
+  trigger: always              # 'always' or 'optional'
+  command: CALL refresh_my_view()
+```
+
+### Action Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Display name shown in the UI checkbox and confirmation message |
+| `trigger` | Yes | `always` — runs unconditionally after upload. `optional` — a checkbox (checked by default) lets the user disable it |
+| `command` | Yes | Any valid Snowflake SQL statement, e.g. a `CALL` to a stored procedure or `EXECUTE TASK` statement |
+
+### Trigger Behaviour
+
+| Trigger value | UI behaviour |
+|---------------|-------------|
+| `always` | No checkbox shown; action runs on every upload |
+| `optional` | A checkbox labelled with `name` appears above the Upload button (checked by default). Users can uncheck it to skip the action for that upload. |
+
+After upload, a confirmation message is displayed for each component that completed:
+
+- "Upload complete!" — the data write succeeded
+- "{name} complete." — the action ran successfully
 
 ## Configuring Data Quality Checks
 
@@ -238,7 +273,7 @@ sql: |
 | `{primary_key}` | System | The table's primary key column(s) |
 | `{column}`, `{expression}`, etc. | Table config | Values from the table's check configuration |
 
-### Built-in Check Types
+### Example Check Types
 
 #### unique
 Checks for duplicate values.

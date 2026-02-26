@@ -1,5 +1,5 @@
 """
-RefDQ MVP version 0.2.0
+RefDQ MVP version 0.4.0
 © 2025 Mark Sabin <morboagrees@gmail.com>
 Released under Apache 2.0 license. Please see https://github.com/pyxel/differ/blob/main/LICENSE.
 """
@@ -26,7 +26,7 @@ def load_yaml(s: str):
     return yaml.safe_load(s)
 
 
-def load_yaml_config(path = "./refman/config.yaml"):
+def load_yaml_config(path = "./config.yaml"):
     """Returns a dict of configurations defined in the configuration file."""
     if os.path.exists(path):
         return load_yaml(readfile(path))
@@ -99,6 +99,7 @@ class Target:
         self.target_table = _target['target_table']
         self.primary_key = _target['primary_key']
         self.checks = _target.get('checks', None)
+        self.action = _target.get('action', None)
 
 
     def validate_target_dict(self, target_name, d_target):
@@ -433,24 +434,14 @@ where not exists (
 
         # Return a bool indicating pass/fail of all checks and a list of checks, including data sets containing failed rows.
         return all_passed, check_results
+    
+
+    def run_action(self):
+        if self.target.action is not None and self.target.action.get("command") is not None:
+            sf.query(self.target.action.get("command"))
 
 
 
 
 if __name__ == '__main__':
     from snowflake.snowpark import Session
-    #import streamlit as st
-    #session = st.connection('snowflake').session()
-
-    #session = Session.builder.config('local_testing', True).create()
-    #df = pd.DataFrame([(6, 'kds', 22,)], columns = ['ID', 'NAME', 'AGE'])
-    #print(df)
-    #rd = RefData(target = Target(target_table_name = 'datafold.datafold.names'), df = df)
-
-    #t = Target(target_name = 'names')
-    #rd.run_checks()
-
-    #print(rd)
-
-    #c = Check({"sql": "select 1 from {target_table} where {key_cols} = 1", "type": "unique"}, {"target_table": "names"}, {"key_cols": "c1"})
-    #print(c.variables, c.sql, c.type, c.description)
