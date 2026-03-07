@@ -6,6 +6,13 @@ See the [User Guide](docs/user_guide.md) for setup instructions and usage docume
 
 ## Version history
 
+### v0.5.0
+#### Browser-based table editing
+Users can now edit table data directly in the browser without uploading a file. Select a table, make changes in the editable grid (add, modify, or delete rows), then confirm. The same schema, data type, and data quality checks run before any changes are applied. If checks fail, the grid automatically becomes editable again so users can correct mistakes in place.
+
+Browser edits always use a **sync** mode: the target table is made to match the edited grid exactly — inserting new rows, updating changed rows, and deleting rows that were removed. The impact summary shows all three metrics before upload.
+
+
 ### v0.4.0
 #### Actions
 Allows execution of a SQL command after data is uploaded. Useful for triggering a task or procedure for downstream processing of the uploaded data.

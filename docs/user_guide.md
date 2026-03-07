@@ -7,8 +7,10 @@ RefDQ is a data quality application for uploading reference data files to Snowfl
 ## Table of Contents
 
 - [End User Guide](#end-user-guide)
+  - [Choosing an Input Method](#choosing-an-input-method)
   - [Uploading a File](#uploading-a-file)
   - [Selecting a Target Table](#selecting-a-target-table)
+  - [Editing a Table in the Browser](#editing-a-table-in-the-browser)
   - [Understanding Validation Results](#understanding-validation-results)
   - [Completing the Upload](#completing-the-upload)
 - [Administrator Guide](#administrator-guide)
@@ -21,6 +23,19 @@ RefDQ is a data quality application for uploading reference data files to Snowfl
 ---
 
 # End User Guide
+
+## Choosing an Input Method
+
+At the top of the page, two input methods are available:
+
+| Method | When to use |
+|--------|-------------|
+| **Upload File** | You have a CSV or Excel file prepared outside the app |
+| **Edit in Browser** | You want to make changes directly to the current table data |
+
+Switching between methods resets the current session. The validation pipeline is identical for both — all schema, data type, and data quality checks run before any changes are written.
+
+---
 
 ## Uploading a File
 
@@ -53,6 +68,33 @@ After uploading, configure where and how to upload:
 2. **Table**: Select the destination table
 
 A sample of the current table data is shown to help verify you've selected the correct target.
+
+## Editing a Table in the Browser
+
+1. **Select "Edit in Browser"** using the input method selector at the top of the page
+2. **Choose a group** (optional) to filter the table list
+3. **Select a table** — the full current table data loads into an editable grid
+4. **Make your changes** directly in the grid:
+   - Click any cell to edit its value
+   - Use the **+** button at the bottom of the grid to add a new row
+   - Select a row and press **Delete** (or use the row menu) to remove it
+5. Click **Confirm edits** to submit your changes for validation
+
+If any checks fail, the grid automatically becomes editable again with your previous edits preserved and a warning shown at the top. Correct the highlighted issues and click **Confirm edits** again.
+
+### How browser edits are applied
+
+Browser edits always use **sync** mode. The target table is made to match the grid exactly:
+
+| Operation | When it happens |
+|-----------|----------------|
+| **Insert** | A row exists in the grid but not in the table (new primary key) |
+| **Update** | A row exists in both but one or more values differ |
+| **Delete** | A row exists in the table but was removed from the grid |
+
+The impact summary shows all three counts before you confirm the upload.
+
+---
 
 ## Understanding Validation Results
 
@@ -93,7 +135,12 @@ Shows what will happen when you upload:
 - Number of rows to be **deleted** (current table contents)
 - Number of rows to be **inserted** (from your file)
 
-If "No changes to be uploaded" appears, your file matches the existing table data exactly.
+**For browser edits (Sync):**
+- Number of rows to be **inserted** (new rows added in the grid)
+- Number of rows to be **updated** (existing rows with changed values)
+- Number of rows to be **deleted** (rows removed from the grid)
+
+If "No changes to be uploaded" appears, your data matches the existing table exactly.
 
 ### Data Quality Checks
 
@@ -107,8 +154,9 @@ Custom business rules configured for each table. Each check appears as an expand
 **When a check fails:**
 1. Expand the check to see the description and failed rows
 2. The table shows all rows that violate the rule (up to 10,000)
-3. Fix the data in your source file
-4. Re-upload the corrected file
+3. Fix the data:
+   - **Upload File mode:** correct your source file and re-upload
+   - **Edit in Browser mode:** the grid automatically becomes editable again — correct the rows and click **Confirm edits**
 
 ## Completing the Upload
 
@@ -689,4 +737,5 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE my_database.my_schema.table_name T
 
 ### Check failures
 - Review the failed rows in the expanded check section
-- Correct data in your source file and re-upload
+- **Upload File mode:** correct data in your source file and re-upload
+- **Edit in Browser mode:** the grid reopens automatically — correct the rows and click **Confirm edits**

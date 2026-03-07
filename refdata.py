@@ -1,5 +1,5 @@
 """
-RefDQ MVP version 0.4.0
+RefDQ MVP version 0.5.0
 © 2025 Mark Sabin <morboagrees@gmail.com>
 Released under Apache 2.0 license. Please see https://github.com/pyxel/differ/blob/main/LICENSE.
 """
@@ -79,6 +79,17 @@ def get_check_definitions(path = os.path.join(config_path, 'checks')):
 
 def get_target_sample(target_table, num_rows = 100):
     return sf.query(f"select * from {target_table} limit {num_rows}")
+
+
+def get_target_full_data(target_table: str) -> pd.DataFrame:
+    """Returns all rows of a target table as a pandas DataFrame for browser editing."""
+    rows = sf.query(f"SELECT * FROM {target_table}")
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame([r.as_dict() for r in rows])
+    df.columns = [c.upper() for c in df.columns]
+    return df
+
 
 class Target:
     """Defines a target table."""
@@ -180,8 +191,8 @@ class RefData:
 
         # upload type
         self.upload_type = upload_type.lower()
-        if self.upload_type not in ['merge', 'replace']:
-            raise ValueError("upload_type must be 'merge' or 'replace'.")
+        if self.upload_type not in ['merge', 'replace', 'sync']:
+            raise ValueError("upload_type must be 'merge', 'replace', or 'sync'.")
 
         # Upload df to temp table.
         self.stage_table = f"{temp_schema}.{self.target.target_table.split('.')[2]}"
@@ -221,13 +232,35 @@ when matched then
 when not matched then
     insert ({insert_cols}) values ({value_cols})
 """
+            sf.query(sql)
+        elif self.upload_type == 'sync':
+            merge_sql = f"""
+merge into {self.target.target_table} tgt
+using {self.stage_table} src
+on {key_join}
+when matched then
+    update set {update_cols}
+when not matched then
+    insert ({insert_cols}) values ({value_cols})
+"""
+            not_null_tgt = self.target.get_sql_primary_key_check_null("tgt", not_null=True)
+            pk_join_src_tgt = self.target.get_sql_primary_key_join("src", "tgt")
+            delete_sql = f"""
+delete from {self.target.target_table} tgt
+where {not_null_tgt}
+and not exists (
+    select 1 from {self.stage_table} src
+    where {pk_join_src_tgt}
+)
+"""
+            sf.query(merge_sql)
+            sf.query(delete_sql)
         else:
             sql = f"""
 insert overwrite into {self.target.target_table} ({insert_cols})
 select {insert_cols} from {self.stage_table}
 """
-            
-        sf.query(sql)
+            sf.query(sql)
         
 
     def getcastcols(self):
@@ -303,6 +336,44 @@ select {insert_cols} from {self.stage_table}
                 null_check_t1 = self.target.get_sql_primary_key_check_null("t1", not_null = False),
                 join = self.target.get_sql_primary_key_join("new", "t1")
             )
+        elif self.upload_type == 'sync':
+            sql = """
+            with new as (
+                select {select_cols_tmp} from {t2}
+                except
+                select {select_cols} from {t1}
+            ),
+
+            -- Remove any null primary keys. They should not exist, but will break the results if they do.
+            clean_t1 as (
+                select *
+                from {t1} t1
+                where {not_null_check_t1}
+            )
+
+            select
+                count_if({null_check_t1}) as inserted,
+                count_if({not_null_check_t1} and {not_null_check_new}) as updated,
+                (select count(*) from clean_t1 tgt
+                 where not exists (
+                     select 1 from {t2} src where {pk_join_src_tgt}
+                 )) as deleted,
+                count_if({not_null_check_t1}) as table_rows,
+                count_if({not_null_check_new}) as upload_rows
+            from clean_t1 t1
+            full join new on {join}
+            """.format(
+                key = self.target.primary_key,
+                t1 = self.target.target_table,
+                t2 = self.stage_table,
+                select_cols_tmp = self.getcastcols(),
+                select_cols = select_cols,
+                not_null_check_t1 = self.target.get_sql_primary_key_check_null("t1", not_null = True),
+                not_null_check_new = self.target.get_sql_primary_key_check_null("new", not_null = True),
+                null_check_t1 = self.target.get_sql_primary_key_check_null("t1", not_null = False),
+                join = self.target.get_sql_primary_key_join("new", "t1"),
+                pk_join_src_tgt = self.target.get_sql_primary_key_join("src", "tgt")
+            )
         else:
             sql = """
             select
@@ -316,15 +387,15 @@ select {insert_cols} from {self.stage_table}
         df = sf.query(sql)
         for row in df:
             row = row.as_dict()
-            #print(row)
             impact = {
                 "inserted": row.get("INSERTED"),
                 "updated": row.get("UPDATED"),
+                "deleted": row.get("DELETED"),
                 "table_rows": row.get("TABLE_ROWS"),
                 "upload_rows": row.get("UPLOAD_ROWS"),
-                "merge_rows_affected": row.get("INSERTED", 0) + row.get("UPDATED", 0)
+                "merge_rows_affected": row.get("INSERTED", 0) + row.get("UPDATED", 0),
+                "sync_rows_affected": row.get("INSERTED", 0) + row.get("UPDATED", 0) + row.get("DELETED", 0)
             }
-            #print(impact)
         return impact
     
 

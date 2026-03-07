@@ -1,4 +1,4 @@
-#RefDQ MVP version 0.4.0
+#RefDQ MVP version 0.5.0
 #© 2025 Mark Sabin <morboagrees@gmail.com>
 #Released under Apache 2.0 license. Please see https://github.com/pyxel/RefDQ/blob/main/LICENSE.
 
@@ -10,7 +10,7 @@ import os
 import pandas as pd
 import streamlit as st
 
-from refdata import RefData, Target, get_target_group_names, get_target_table_names, get_target_sample, get_targets
+from refdata import RefData, Target, get_target_group_names, get_target_table_names, get_target_sample, get_target_full_data, get_targets
 import get_snowflake as sf
 
 
@@ -46,6 +46,10 @@ class AppState:
     upload_complete: bool = False
     action_run: bool = False
 
+    input_mode: str = 'file'
+    browser_source_df: pd.DataFrame | None = None
+    browser_reedit_active: bool = False
+
     # Cached data
     target_group_names: list[str] = field(default_factory=list)
     target_table_names: list[str] = field(default_factory=list)
@@ -64,6 +68,8 @@ class AppState:
         self.has_changes = False
         self.upload_complete = False
         self.action_run = False
+        self.browser_source_df = None
+        self.browser_reedit_active = False
         self.target_group_names = get_target_group_names()
         self.target_table_names = get_target_table_names()
 
@@ -176,6 +182,112 @@ class FileUploadSection(Section):
         st.write("Sample rows from file:")
         st.dataframe(data=upload_df.head(100), hide_index=True)
         return True
+
+
+class BrowserEditSection(Section):
+    """Browser-based section: select table, load data, edit, and confirm edits."""
+
+    def _clear_edit_state(self):
+        self.state.upload_df = None
+        self.state.browser_source_df = None
+        self.state.rd = None
+        self.state.continue_on_schema_error = False
+        self.state.browser_reedit_active = False
+
+    def render(self) -> bool:
+        st.subheader("Select and edit a table")
+
+        # Group selector
+        group_index = None
+        if self.state.target_group_name and self.state.target_group_name in self.state.target_group_names:
+            group_index = self.state.target_group_names.index(self.state.target_group_name)
+
+        target_group_name = st.selectbox(
+            label="Group",
+            options=self.state.target_group_names,
+            index=group_index,
+            key='browser_select_groups'
+        )
+        if target_group_name != self.state.target_group_name:
+            self.state.target_group_name = target_group_name
+            if target_group_name:
+                self.state.target_table_names = get_target_table_names(target_group_name)
+            else:
+                self.state.target_table_names = get_target_table_names()
+            self.state.target_table_name = None
+            self._clear_edit_state()
+
+        # Table selector
+        table_index = None
+        if self.state.target_table_name and self.state.target_table_name in self.state.target_table_names:
+            table_index = self.state.target_table_names.index(self.state.target_table_name)
+
+        target_table_name = st.selectbox(
+            label="Table",
+            options=self.state.target_table_names,
+            index=table_index,
+            key='browser_select_table'
+        )
+        if target_table_name != self.state.target_table_name:
+            self.state.target_table_name = target_table_name
+            self._clear_edit_state()
+
+        if self.state.target_table_name is None:
+            return False
+
+        # Load table data (cached in state to avoid reloading on every rerun)
+        if self.state.browser_source_df is None:
+            with st.spinner("Loading table data..."):
+                self.state.browser_source_df = get_target_full_data(self.state.target_table_name)
+
+        # If edits already confirmed, show summary or re-editable view if checks failed
+        if self.state.upload_df is not None:
+            rd = self.state.rd
+            has_errors = (
+                rd is not None
+                and not self.state.upload_complete
+                and (not hasattr(rd, 'all_checks_passed') or not rd.all_checks_passed)
+            )
+            if has_errors:
+                self.state.browser_reedit_active = True
+                st.warning("Some checks failed. Please correct your edits and confirm again.", icon=":material/warning:")
+                edited_df = st.data_editor(
+                    data=self.state.upload_df,
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    key=f"browser_editor_{self.state.target_table_name}_reedit"
+                )
+                if st.button("Confirm edits", type="primary", icon=":material/check_circle:"):
+                    upload_df = edited_df.copy()
+                    upload_df.columns = [c.upper() for c in upload_df.columns]
+                    self.state.upload_df = upload_df
+                    self.state.upload_type = 'sync'
+                    self.state.rd = None
+                    self.state.browser_reedit_active = False
+                    st.rerun()
+            else:
+                self.state.browser_reedit_active = False
+                st.info(f"Edits confirmed ({len(self.state.upload_df)} rows). Proceeding with checks...", icon="✅")
+                st.dataframe(data=self.state.upload_df.head(100), hide_index=True)
+            return True
+
+        # Editable table
+        edited_df = st.data_editor(
+            data=self.state.browser_source_df,
+            num_rows="dynamic",
+            use_container_width=True,
+            key=f"browser_editor_{self.state.target_table_name}"
+        )
+
+        if st.button("Confirm edits", type="primary", icon=":material/check_circle:"):
+            upload_df = edited_df.copy()
+            upload_df.columns = [c.upper() for c in upload_df.columns]
+            self.state.upload_df = upload_df
+            self.state.upload_type = 'sync'
+            self.state.rd = None
+            st.rerun()
+
+        return False
 
 
 class TableSelectSection(Section):
@@ -345,13 +457,20 @@ class ImpactSection(Section):
 
         st.subheader('Impact')
         st.write('This upload will:')
-        col1, col2 = st.columns([.5, .5])
 
         if self.state.upload_type == 'merge':
+            col1, col2 = st.columns(2)
             col1.info(f"Insert {self.state.rd.impact['inserted']} rows.", icon=":material/add_circle:")
             col2.info(f"Update {self.state.rd.impact['updated']} rows.", icon=":material/sync:")
             self.state.has_changes = self.state.rd.impact['merge_rows_affected'] > 0
-        else:
+        elif self.state.upload_type == 'sync':
+            col1, col2, col3 = st.columns(3)
+            col1.info(f"Insert {self.state.rd.impact['inserted']} rows.", icon=":material/add_circle:")
+            col2.info(f"Update {self.state.rd.impact['updated']} rows.", icon=":material/sync:")
+            col3.info(f"Delete {self.state.rd.impact['deleted']} rows.", icon=":material/delete:")
+            self.state.has_changes = self.state.rd.impact['sync_rows_affected'] > 0
+        else:  # replace
+            col1, col2 = st.columns(2)
             col1.info(f"Delete {self.state.rd.impact['table_rows']} rows currently in the table.", icon=":material/delete_forever:")
             col2.info(f"Insert {self.state.rd.impact['upload_rows']} rows from the uploaded file.", icon=":material/add_circle:")
             self.state.has_changes = True
@@ -378,7 +497,10 @@ class DQChecksSection(Section):
                 exp.write(format_newline(f"{check_result.description}"))
                 exp.info('Failed!', icon="❌")
                 max_error_message = f"(first {MAX_ERROR_ROWS} rows of {len(check_result.df)})" if len(check_result.df) > MAX_ERROR_ROWS else ""
-                exp.write(f"The **{check_result.check_type}** check has failed for the rows below{max_error_message}. Please correct the source file and upload again.")
+                correction_hint = ("correct your edits in the browser and confirm again"
+                                   if self.state.input_mode == 'browser'
+                                   else "correct the source file and upload again")
+                exp.write(f"The **{check_result.check_type}** check has failed for the rows below{max_error_message}. Please {correction_hint}.")
                 exp.dataframe(data=check_result.df[:MAX_ERROR_ROWS], hide_index=True)
             else:
                 exp = st.expander(f"✅ **{check_result.check_type}**")
@@ -440,10 +562,31 @@ def main():
         state.save_to_session()
         st.rerun()
 
-    # Define sections in order
-    sections = [
-        FileUploadSection(state),
-        TableSelectSection(state),
+    # Mode selector
+    mode_options = ["Upload File", "Edit in Browser"]
+    selected_mode = st.radio(
+        label="Input method",
+        options=mode_options,
+        index=0 if state.input_mode == 'file' else 1,
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+    new_input_mode = 'file' if selected_mode == "Upload File" else 'browser'
+    if new_input_mode != state.input_mode:
+        state.input_mode = new_input_mode
+        state.upload_type = 'sync' if new_input_mode == 'browser' else 'merge'
+        state.upload_df = None
+        state.browser_source_df = None
+        state.browser_reedit_active = False
+        state.target_table_name = None
+        state.rd = None
+        state.continue_on_schema_error = False
+        state.upload_complete = False
+        state.save_to_session()
+        st.rerun()
+
+    # Shared validation and upload sections (reused for both modes)
+    shared_sections = [
         ValidationSection(state),
         SchemaCheckSection(state),
         DataTypeCheckSection(state),
@@ -452,11 +595,27 @@ def main():
         UploadSection(state),
     ]
 
+    if state.input_mode == 'file':
+        sections = [FileUploadSection(state), TableSelectSection(state)] + shared_sections
+    else:
+        sections = [BrowserEditSection(state)] + shared_sections
+
     # Render sections sequentially, stop at first incomplete
     for section in sections:
         is_complete = section.render()
         if not is_complete:
             break
+
+    # In browser mode: if validation just ran and found errors, rerun so BrowserEditSection
+    # can switch from read-only to editable. Guard with browser_reedit_active to avoid loop.
+    if (state.input_mode == 'browser'
+            and state.upload_df is not None
+            and not state.upload_complete
+            and not state.browser_reedit_active):
+        rd = state.rd
+        if rd is not None and (not hasattr(rd, 'all_checks_passed') or not rd.all_checks_passed):
+            state.save_to_session()
+            st.rerun()
 
     # Save state
     state.save_to_session()
